@@ -19,9 +19,8 @@ confirm() {
 
 list() {
   curl -sL "$INDEX_URL" \
-    | pup '.entry-content a attr{href}' \
+    | pup '.entry-content details a attr{href}' \
     | grep -vE '^https?://' \
-    | grep -vE '^(about_algorithm_lectures|history|category_index|index)$' \
     | awk -v base="$BASE_URL" '{print base "/" $0}'
 }
 
@@ -74,9 +73,23 @@ generate() {
         --print-to-pdf="$pdf_file" "file://$(realpath "$html_file")" 2>/dev/null
     fi
   done
+}
+
+combine() {
+  local pdfmarks page=1
+  pdfmarks=$(mktemp)
+  for pdf_file in "$PDF_DIR"/*.pdf; do
+    local title npages
+    title=$(basename "$pdf_file" .pdf | sed 's/^[0-9]*_//')
+    echo "[/Page $page /Title ($title) /OUT pdfmark" >> "$pdfmarks"
+    npages=$(qpdf --show-npages "$pdf_file")
+    page=$((page + npages))
+  done
 
   echo "Combining into $OUTPUT_PDF ..."
-  qpdf --empty --pages "$PDF_DIR"/*.pdf -- "$OUTPUT_PDF"
+  gs -dBATCH -dNOPAUSE -sDEVICE=pdfwrite -sOutputFile="$OUTPUT_PDF" \
+    "$PDF_DIR"/*.pdf "$pdfmarks" &>/dev/null
+  rm "$pdfmarks"
   echo "Done! Generated $OUTPUT_PDF"
 }
 
@@ -89,7 +102,10 @@ main() {
   confirm "Download $COUNT articles?" && download "$URLS" || true
   echo
 
-  confirm "Generate PDF?" && generate || true
+  confirm "Convert each html into PDF?" && generate || true
+  echo
+
+  confirm "Combine into $OUTPUT_PDF?" && combine || true
 }
 
 main

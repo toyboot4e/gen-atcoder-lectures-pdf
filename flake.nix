@@ -23,6 +23,7 @@
           runtimeInputs = with pkgs; [
             chromium
             curl
+            ghostscript
             pup
             qpdf
           ];
@@ -35,6 +36,7 @@
           packages = with pkgs; [
             chromium
             curl
+            ghostscript
             nixfmt
             pup
             qpdf
