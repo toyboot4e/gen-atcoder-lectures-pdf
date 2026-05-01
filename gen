@@ -1,0 +1,95 @@
+#!/usr/bin/env -S bash -euEo pipefail
+
+INDEX_URL="https://info.atcoder.jp/entry/algorithm_lectures/index"
+BASE_URL="https://info.atcoder.jp/entry/algorithm_lectures"
+HTML_DIR="html"
+PDF_DIR="pdf"
+OUTPUT_PDF="atcoder-lectures.pdf"
+DELAY=3
+
+# Returns 0=yes, 1=skip, otherwise exits
+confirm() {
+  read -rp "$1 [Y/s/n] " answer
+  case "$answer" in
+    s|S) return 1 ;;
+    n|N) exit 0 ;;
+    *) return 0 ;;
+  esac
+}
+
+list() {
+  curl -sL "$INDEX_URL" \
+    | pup '.entry-content a attr{href}' \
+    | grep -vE '^https?://' \
+    | grep -vE '^(about_algorithm_lectures|history|category_index|index)$' \
+    | awk -v base="$BASE_URL" '{print base "/" $0}'
+}
+
+download() {
+  local urls="$1"
+  local count
+  count=$(echo "$urls" | wc -l)
+
+  rm -rf "$HTML_DIR"
+  mkdir -p "$HTML_DIR"
+
+  local i=0
+  echo "$urls" | while IFS= read -r url; do
+    i=$((i + 1))
+    local slug padded outfile
+    slug=$(basename "$url")
+    padded=$(printf "%03d" "$i")
+    outfile="$HTML_DIR/${padded}_${slug}.html"
+
+    echo "[$i/$count] Downloading $slug"
+    curl -sL "$url" -o "$outfile"
+    sleep "$DELAY"
+  done
+}
+
+generate() {
+  local browser
+  if command -v chromium &>/dev/null; then
+    browser=chromium
+  elif command -v google-chrome &>/dev/null; then
+    browser=google-chrome
+  elif command -v chromium-browser &>/dev/null; then
+    browser=chromium-browser
+  else
+    echo "Error: No Chromium/Chrome browser found" >&2
+    return 1
+  fi
+
+  mkdir -p "$PDF_DIR"
+  for html_file in "$HTML_DIR"/*.html; do
+    local base pdf_file
+    base=$(basename "$html_file" .html)
+    pdf_file="$PDF_DIR/${base}.pdf"
+
+    if [[ -f "$pdf_file" ]]; then
+      echo "Skipping $base (PDF exists)"
+    else
+      echo "Converting $base"
+      "$browser" --headless --disable-gpu --no-sandbox --run-all-compositor-stages-before-draw \
+        --print-to-pdf="$pdf_file" "file://$(realpath "$html_file")" 2>/dev/null
+    fi
+  done
+
+  echo "Combining into $OUTPUT_PDF ..."
+  qpdf --empty --pages "$PDF_DIR"/*.pdf -- "$OUTPUT_PDF"
+  echo "Done! Generated $OUTPUT_PDF"
+}
+
+main() {
+  URLS="$(list)"
+  COUNT=$(echo "$URLS" | wc -l)
+  echo "$URLS"
+  echo
+
+  confirm "Download $COUNT articles?" && download "$URLS" || true
+  echo
+
+  confirm "Generate PDF?" && generate || true
+}
+
+main
